@@ -88,12 +88,17 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
     };
 
     var renderCollapseContainer = function (sb, fieldID, field) {
-        sb.appendFormat('<div class="ui styled fluid accordion">');
-        sb.appendFormat('    <div class="active title">');
+
+        function resolveActive(state) {
+            return state == undefined || state == 'opened' ? 'active': '';
+        }
+
+        sb.appendFormat('<div class="ui fluid {0} accordion">', field.containerCssClass || "");
+        sb.appendFormat('    <div class="{0} title">', resolveActive(field.state));
         sb.appendFormat('    <i class="dropdown icon"></i>');
         sb.appendFormat('    {0}',field.groupLabel || "");
         sb.appendFormat('</div>');
-        sb.appendFormat('<div class="active content">');
+        sb.appendFormat('<div class="{0} content">', resolveActive(field.state));
 
         field.fields.forEach(function (it) {
             $this.renderDataField(sb, it);

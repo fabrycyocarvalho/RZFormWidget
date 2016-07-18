@@ -32,8 +32,14 @@ rz.widgets.RZFormWidgetHelpers = {
         "validateFieldAt",
         "validateFieldOf",
         "getFieldParams",
-        
-        "getFieldValue"
+        "getFieldValue",
+
+        "getFieldsOfGroup",
+        "getFieldsOfRuleset",
+        "disableFields",
+        "enableFields",
+        "hideFields",
+        "displayFields"
     ],
     FormWidgetEventHandlers : [
         "data-changed",
@@ -170,7 +176,7 @@ rz.widgets.formHelpers = {
         var formData = $this.sender.getFormData();
         var $that = this;
 
-        if (params.validation.enabled) {
+        if (params.validation !==undefined && params.validation.enabled) {
             $this.sender.validationReport = [];
             params.validation.rules.forEach(function (rule) {
                 var fieldID = $("#" + $this.target +  "base_form .field[data-model='"+rule.model+"']").attr("id");
@@ -215,18 +221,18 @@ rz.widgets.formHelpers = {
     },
     getFormDataImpl: function ($this,fieldsetRule) {
         var root = {};
-        var rcount = $this.fieldCount();
+        var rcount = $this.sender.fieldCount();
         for (var i = 0; i < rcount; i++) {
-            var id = $this.getFieldIdAt(i);
+            var id = $this.sender.getFieldIdAt(i);
             var model = $("#" + id).data("model");
             if(model!==undefined && model !="***"){
                 if(fieldsetRule!==undefined){
                     if(this.fieldMatchFieldSetRule(id,fieldsetRule)){
-                        rz.helpers.jsonUtils.setDataAtPath(root, $this.getValueOf(id), model);
+                        rz.helpers.jsonUtils.setDataAtPath(root, $this.sender.getValueOf(id), model);
                     }
                 }
                 else{
-                    rz.helpers.jsonUtils.setDataAtPath(root, $this.getValueOf(id), model);
+                    rz.helpers.jsonUtils.setDataAtPath(root, $this.sender.getValueOf(id), model);
                 }
             }
 
@@ -234,29 +240,29 @@ rz.widgets.formHelpers = {
         return root;
     },
     setFormDataImpl: function (formData, $this,fieldsetRule) {
-        var rcount = $this.fieldCount();
+        var rcount = $this.sender.fieldCount();
         for (var i = 0; i < rcount; i++) {
-            var id = $this.getFieldIdAt(i);
+            var id = $this.sender.getFieldIdAt(i);
             if((fieldsetRule!==undefined && this.fieldMatchFieldSetRule(id,fieldsetRule)) || fieldsetRule===undefined){
                 var model = $("#" + id).data("model");
                 if(model !==undefined && model !="***"){
                     var value = rz.helpers.jsonUtils.getDataAtPath(formData, model);
-                    $this.setValueOfModel(model, value);
+                    $this.sender.setValueOfModel(model, value);
                 }
             }
         }
     },
     clearFormDataImpl:function($this,fieldsetRule){
-        var rcount = $this.fieldCount();
+        var rcount = $this.sender.fieldCount();
         for (var i = 0; i < rcount; i++) {
-            var id = $this.getFieldIdAt(i);
+            var id = $this.sender.getFieldIdAt(i);
             if((fieldsetRule!==undefined && this.fieldMatchFieldSetRule(id,fieldsetRule)) || fieldsetRule===undefined){
                 var initialValue = $("#" + id).data("initial-value");
                 if (initialValue !== undefined && initialValue.toString().match(/^object-data:\[.*]$/) != null) {
                     initialValue = initialValue.replace(/^object-data:\[/, "").replace(/]$/, "");
                     initialValue = JSON.parse(atob(initialValue));
                 }
-                $this.setValueAt(i, initialValue);
+                $this.sender.setValueAt(i, initialValue);
             }
         }
     },
@@ -401,6 +407,8 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
         var id = fid.substring(0, fid.lastIndexOf("_collection"));
         /*particular for non input controls*/
         var fieldParams = rz.widgets.formHelpers.getFieldParams(id.replace("#", ""), sender.renderer.params.fields);
+        var stateChangedHandler = fieldParams.stateChangedHandler || function(){};
+
         var sb = new StringBuilder();
         var $this = this;
         var processAddValue = function (item) {
@@ -469,7 +477,8 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
 
         $(fid + "_collection_container").append(sb.toString());
         initializeActionsDropdown();
-
+        var state = (newValue==null||newValue==undefined)?"empty":"added";
+        stateChangedHandler(sender,{state:state,fieldParams:fieldParams});
     },
 
     bindEvents: function (id, emit, sender) {
@@ -487,13 +496,12 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
                     if (result.validated) {
                         var newItem = sender.getFormData(fieldsets);
                         sender.clearFormData(fieldsets);
-                        sender.setValueOf(id, newItem);
-                        stateChangedHandler(sender,{state:"added",fieldParams:fieldParams});
-                        //emit aqui ? ou lá?
+                        sender.setValueOf(id, newItem,{bypassEventHandling:true});
+                        emit("data-changed", {fieldid: id,value: newItem,src: "usr",changeType:"add"},sender);
                     }
                 }, fieldsets);
             }
-            else if(source=="xxxxxxxxxxx"){
+            else if(source=="xxxxxxxxxxx?"){
                 throw "NOT_IMPLEMENTED";
             }
         });
@@ -503,14 +511,16 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
             if(confirmMethod !==undefined){
                 confirmMethod(sender,{params:fieldParams},function(confirm){
                     if(confirm){
-                        sender.setValueOf(fieldParams.id,null,sender);
+                        sender.setValueOf(fieldParams.id,null,{bypassEventHandling:true});
                         stateChangedHandler(sender,{state:"empty",fieldParams:fieldParams});
+                        emit("data-changed", {fieldid: id,value: null,src: "usr",changeType:"clear"},sender);
                     }
                 });
             }
             else{
-                sender.setValueOf(fieldParams.id,null,sender);
+                sender.setValueOf(fieldParams.id,null,{bypassEventHandling:true});
                 stateChangedHandler(sender,{state:"empty",fieldParams:fieldParams});
+                emit("data-changed", {fieldid: id,value: null,src: "usr",changeType:"clear"},sender);
             }
         });
 
@@ -520,7 +530,6 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
                     if (result.validated) {
                         var newItem = sender.getFormData(fieldsets);
                         sender.clearFormData(fieldsets);
-                        //sender.setValueOf(id, newItem);
                         var el = $("#" + fieldParams.id + " .edit-mode");
                         el.data("value",btoa(JSON.stringify(newItem)));
                         el.removeClass("edit-mode");
@@ -529,8 +538,7 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
                         contentRenderer(sb,fieldParams,newItem,"edit-mode");
                         el.find(".data-area").html(sb.toString());
                         stateChangedHandler(sender,{state:"edited",fieldParams:fieldParams});
-
-                        //emit aqui ? ou lá?
+                        emit("data-changed", {fieldid: id,value: newItem,src: "usr",changeType:"update"},sender);
                     }
                 }, fieldsets);
             }
@@ -559,12 +567,15 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
                 $("#" + e.rowid).fadeOut("fast", function () {
                     $("#" + e.rowid).detach();
                     var count = $("#" + e.fieldid + " .collection-dataitem").length;
+                    var collectionEmpty = false;
                     if(count > 0){
                         stateChangedHandler(sender,{state:"deleted",fieldParams:fieldParams});
                     }
                     else{
                         stateChangedHandler(sender,{state:"empty",fieldParams:fieldParams});
+                        collectionEmpty = true;
                     }
+                    emit("data-changed", {fieldid: id,value: null,src: "usr",changeType:"delete", deletedData:e.rowData,isEmpty:collectionEmpty},sender);
                 });
                 //todo emit (changed)
             };
@@ -798,11 +809,6 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
         $this.sender = sender;
     };
 
-    /**
-     * renderizes the widget
-     * @param {string} target
-     * @param {object} params
-     */
     this.render = function (target, params,createDomElement) {
         $this.params = params;
         $this.target = target;
@@ -815,7 +821,7 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
             renderTabPanels(sb);
         }
 
-        rz.widgets.formHelpers.renderDataRows(sb, params, renderDataField);
+        rz.widgets.formHelpers.renderDataRows(sb, params, $this.renderDataField);
         sb.append('  </form>');
         sb.appendFormat('<div id="{0}_validation_report" class="validation-report-container"></div>',target);
         sb.append('</div>');
@@ -840,7 +846,7 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
     var isElegibleFormTabPanel = function () {
         var elegible = true;
         $this.params.fields.forEach(function (it) {
-            if (!it.fieldGroup) {
+            if (!it.fieldGroup || (it.groupType !==undefined && it.groupType !="tabpanel")) {
                 elegible = false;
                 return null;
             }
@@ -872,15 +878,20 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
     };
 
     var renderCollapseContainer = function (sb, fieldID, field) {
-        sb.appendFormat('<div class="ui styled fluid accordion">');
-        sb.appendFormat('    <div class="active title">');
+
+        function resolveActive(state) {
+            return state == undefined || state == 'opened' ? 'active': '';
+        }
+
+        sb.appendFormat('<div class="ui fluid {0} accordion">', field.containerCssClass || "");
+        sb.appendFormat('    <div class="{0} title">', resolveActive(field.state));
         sb.appendFormat('    <i class="dropdown icon"></i>');
         sb.appendFormat('    {0}',field.groupLabel || "");
         sb.appendFormat('</div>');
-        sb.appendFormat('<div class="active content">');
+        sb.appendFormat('<div class="{0} content">', resolveActive(field.state));
 
         field.fields.forEach(function (it) {
-            renderDataField(sb, it);
+            $this.renderDataField(sb, it);
         });
 
         sb.appendFormat('</div>');
@@ -893,7 +904,7 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
             (field.active) ? "active" : ""
         );
         field.fields.forEach(function (it) {
-            renderDataField(sb, it);
+            $this.renderDataField(sb, it);
         });
         sb.appendFormat('</div>');
     };
@@ -905,12 +916,12 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
         var fieldCountName = field.columCount ||c[fieldCount];
         sb.appendFormat('<div class="{0} fields">',fieldCountName);
         field.fields.forEach(function (it) {
-            renderDataField(sb, it);
+            $this.renderDataField(sb, it);
         });
         sb.appendFormat('</div>');
     };
 
-    var renderDataField = function (sb, field) {
+    this.renderDataField = function (sb, field) {
         var fieldID = (field.id || field.model || "field_" + generateRandomID(8)).replace(/\./g, "_");
         if (field.fieldGroup) {
             var groupType = field.groupType || "tabpanel";
@@ -961,108 +972,7 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
             sb.append('</div>');
         }
     };
-
-    // this.fieldCount = function () {
-    //     return $("#" + $this.target + "base_form .form-row").length;
-    // };
-
-    // this.getFieldIdAt = function (position) {
-    //     var p = position;
-    //     if (p >= 0 && p < this.fieldCount()) {
-    //         return $("#" + $this.target + "base_form .form-row").eq(p).attr("id");
-    //     }
-    //     else {
-    //         return undefined;
-    //     }
-    // };
-
-    this.addField = function (fielddata) {
-        var sb = new StringBuilder();
-        renderDataField(sb, fielddata);
-        $("#" + $this.target + "base_form .form-row").last().parent().append(sb.toString());
-    };
-
-    this.insertField = function (fielddata, position) {
-        var sb = new StringBuilder();
-        renderDataField(sb, fielddata);
-        $("#" + $this.target + "base_form .form-row").eq(position).before(sb.toString());
-    };
-
-    this.removeFieldAt = function (position) {
-        var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
-            $("#" + $this.target + "base_form .form-row").eq(p).remove();
-        }
-    };
-
-    this.removeFieldById = function (fieldid) {
-        if (!fieldid.startsWith($this.target + "_")) {
-            fieldid = $this.target + "_" + fieldid;
-        }
-        $("#" + fieldid).remove();
-    };
-
-    this.getValueAt = function (position) {
-        var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
-            var id = $("#" + $this.target + "base_form .form-row").eq(p).attr("id");
-            return rz.widgets.formHelpers.getValueOfField("#" + id);
-        }
-    };
-
-    this.getValueOf = function (fieldid) {
-        if (!fieldid.startsWith($this.target + "_")) {
-            fieldid = $this.target + "_" + fieldid;
-        }
-        return rz.widgets.formHelpers.getValueOfField("#" + fieldid);
-    };
-
-    this.setValueOfModel = function (model,value) {
-        var id = $("#" + $this.target +  "base_form .field[data-model='"+model+"']").attr("id");
-        return $this.setValueOf(id,value);
-    };
-
-    this.setValueAt = function (position, value) {
-        var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
-            var id = $("#" + $this.target + "base_form .form-row").eq(p).attr("id");
-            var formerValue = rz.widgets.formHelpers.getValueOfField("#" + id);
-            if (formerValue != value) {
-                rz.widgets.formHelpers.setValueOfField("#" + id, value,$this.sender);
-                rz.widgets.formHelpers.emit("data-changed", {fieldid: id, value: value, src: "code"}, $this.sender);
-            }
-        }
-    };
-
-    this.setValueOf = function (fieldid, value) {
-        if(fieldid !==undefined){
-            if (!fieldid.startsWith($this.target + "_")) {
-                fieldid = $this.target + "_" + fieldid;
-            }
-            var formerValue = rz.widgets.formHelpers.getValueOfField("#" + fieldid);
-            if (formerValue != value) {
-                rz.widgets.formHelpers.setValueOfField("#" + fieldid, value,$this.sender);
-                rz.widgets.formHelpers.emit("data-changed", {fieldid: fieldid, value: value, src: "code"}, $this.sender);
-            }
-        }
-    };
-
-    this.getFormData = function (fieldsetRule) {
-        return rz.widgets.formHelpers.getFormDataImpl($this,fieldsetRule);
-    };
-
-    this.setFormData = function(formData,fieldsetRule){
-        rz.widgets.formHelpers.setFormDataImpl(formData,$this,fieldsetRule,$this);
-    };
-
-    this.clearFormData = function (fieldsetRule) {
-        rz.widgets.formHelpers.clearFormDataImpl($this,fieldsetRule,$this.sender);
-    };
-
-    this.validateForm = function(validationResultHandler,fieldsetRule,forceSuccess){
-        rz.widgets.formHelpers.validateFormImpl($this,params,validationResultHandler,fieldsetRule,forceSuccess);
-    };
-
+    
     this.displayValidationReport = function(){
         rz.widgets.formHelpers.displayValidationReportImpl($this);
     };
@@ -1072,6 +982,7 @@ rz.widgets.FormRenderers["default"] = function (params, sender) {
 /**
  * Created by Anderson on 12/01/2016.
  * Widget Grid Row Renderer
+ * grid-row.renderer.js
  */
 rz.widgets.FormRenderers["grid-row"] = function (params, sender) {
     var $this = this;
@@ -1084,7 +995,7 @@ rz.widgets.FormRenderers["grid-row"] = function (params, sender) {
         $this.target = target;
         var sb = new StringBuilder();
         sb.appendFormat('    <tr id="{0}base_form">', target);
-        rz.widgets.formHelpers.renderDataRows(sb, params, renderDataField);
+        rz.widgets.formHelpers.renderDataRows(sb, params, $this.renderDataField);
 
         sb.appendFormat('    </tr>');
 
@@ -1103,18 +1014,18 @@ rz.widgets.FormRenderers["grid-row"] = function (params, sender) {
         $this.sender.innerWidgetInitializeData = [];
     };
 
-    var renderDataField = function (sb, field) {
+    this.renderDataField = function (sb, field) {
         var fieldID = (field.id || field.model || "row_" + generateRandomID(8)).replace(/\./g, "_");
         if (field.fieldGroup) {
             field.fields.forEach(function (it) {
-                renderDataField(sb, it);
+                $this.renderDataField(sb, it);
             });
         }
         else {
             field.type = field.type || "text";
             field.id = "*_*".replace("*", $this.target).replace("*",fieldID);
 
-            sb.appendFormat('<td id="{0}" data-fieldtype="{1}" data-model="{2}" data-initial-value="{3}" class="row-form-field field{4} {5}">',
+            sb.appendFormat('<td id="{0}" data-fieldtype="{1}" data-model="{2}" {3} class="row-form-field field{4} {5}">',
                 field.id,
                 field.type,
                 rz.widgets.formHelpers.resolveModelName(field, fieldID),
@@ -1142,98 +1053,49 @@ rz.widgets.FormRenderers["grid-row"] = function (params, sender) {
 
     this.addField = function (fielddata) {
         var sb = new StringBuilder();
-        renderDataField(sb, fielddata);
+        $this.renderDataField(sb, fielddata);
         $(sb.toString()).appendTo("#" + $this.target + "base_form");
     };
 
     this.insertField = function (fielddata, position) {
         var sb = new StringBuilder();
-        renderDataField(sb, fielddata);
+        $this.renderDataField(sb, fielddata);
         $("#" + $this.target + "base_form > .row-form-field").eq(position).before(sb.toString());
     };
 
     this.removeFieldAt = function (position) {
         var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
+        if (p >= 0 && p < $this.sender.fieldCount()) {
             $("#" + $this.target + "base_form > .row-form-field").eq(p).remove();
         }
     };
 
-    this.removeFieldById = function (fieldid) {
-        if (!fieldid.startsWith($this.target + "_")) {
-            fieldid = $this.target + "_" + fieldid;
-        }
-        $("#" + fieldid).remove();
-    };
-
     this.getValueAt = function (position) {
         var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
+        if (p >= 0 && p < $this.sender.fieldCount()) {
             var id = $("#" + $this.target + "base_form > .row-form-field").eq(p).attr("id");
             return rz.widgets.formHelpers.getValueOfField("#" + id);
         }
     };
 
-    //*****************************REFATORAÇÃO DO PADRÃO 1: override de campos comuns (todo fazer isto para os outros casos (e renderers)
-    // this.getfieldIdOfModel = function(model){
-    //     return $("#" + $this.target + "base_form .field[data-model='"+model+"']").attr("id");
-    //
-    // };
-    //
-    // this.getValueOfModel = function (model) {
-    //     return $this.getValueOf($this.getfieldIdOfModel(model));
-    // };
-
-    this.setValueOfModel = function (model,value) {
-        var id = $("#" + $this.target +  "base_form .field[data-model='"+model+"']").attr("id");
-        return $this.setValueOf(id,value);
-    };
-
-    this.getValueOf = function (fieldid) {
-        if (!fieldid.startsWith($this.target + "_")) {
-            fieldid = $this.target + "_" + fieldid;
-        }
-        return rz.widgets.formHelpers.getValueOfField("#" + fieldid);
-    };
-
     this.setValueAt = function (position, value) {
         var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
+        if (p >= 0 && p < $this.sender.fieldCount()) {
             var id = $("#" + $this.target + "base_form > .row-form-field").eq(p).attr("id");
             rz.widgets.formHelpers.setValueOfField("#" + id, value,$this.sender);
             rz.widgets.formHelpers.emit("data-changed", {fieldid: id, value: value, src: "code"}, $this.sender);
         }
     };
 
-    this.setValueOf = function (fieldid, value) {
-        if(fieldid !==undefined){
-            if (!fieldid.startsWith($this.target + "_")) {
-                fieldid = $this.target + "_" + fieldid;
-            }
-            rz.widgets.formHelpers.setValueOfField("#" + fieldid, value,$this.sender);
-            rz.widgets.formHelpers.emit("data-changed", {fieldid: fieldid, value: value, src: "code"}, $this.sender);
-        }
-    };
-
-    this.getFormData = function (fieldsetRule) {
-        return rz.widgets.formHelpers.getFormDataImpl($this,fieldsetRule);
-    };
-    
-    this.setFormData = function(formData,fieldsetRule){
-        rz.widgets.formHelpers.setFormDataImpl(formData,$this,fieldsetRule);
-    };
-
-    this.clearFormData = function (fieldsetRule) {
-        rz.widgets.formHelpers.clearFormDataImpl($this,fieldsetRule);
-    };
-
-    /**
-     * validates de form data
-     * @param {function } validationResultHandler - method invoked after validation
-     */
-    this.validateForm = function(validationResultHandler,fieldsetRule,forceSuccess){
-        rz.widgets.formHelpers.validateFormImpl($this,params,validationResultHandler,fieldsetRule,forceSuccess);
-    };
+    // this.setValueOf = function (fieldid, value) {
+    //     if(fieldid !==undefined){
+    //         if (!fieldid.startsWith($this.target + "_")) {
+    //             fieldid = $this.target + "_" + fieldid;
+    //         }
+    //         rz.widgets.formHelpers.setValueOfField("#" + fieldid, value,$this.sender);
+    //         rz.widgets.formHelpers.emit("data-changed", {fieldid: fieldid, value: value, src: "code"}, $this.sender);
+    //     }
+    // };
 
     this.displayValidationReport = function(){
         rz.widgets.formHelpers.displayValidationReportImpl($this);
@@ -1265,7 +1127,7 @@ rz.widgets.FormRenderers["v-grid"] = function (params, sender) {
         sb.appendFormat('  <table id="{0}base_form" class="ui celled table">', target);
         renderHeader(sb, params);
         sb.append('    <tbody>');
-        rz.widgets.formHelpers.renderDataRows(sb, params, renderDataField);
+        rz.widgets.formHelpers.renderDataRows(sb, params, $this.renderDataField);
 
         sb.append('    </tbody>');
         sb.append('  </table>');
@@ -1287,11 +1149,6 @@ rz.widgets.FormRenderers["v-grid"] = function (params, sender) {
             if(data.doAfterRenderAction!==undefined) data.doAfterRenderAction();
         });
         $this.sender.innerWidgetInitializeData = [];
-
-        // $("#" + target).append(sb.toString());
-        // rz.widgets.formHelpers.doPosRenderActions($this.sender);
-        // rz.widgets.formHelpers.bindEventHandlers($this.sender);
-        // bindCollapseButtonEvents();
     };
 
     var bindCollapseButtonEvents = function () {
@@ -1338,17 +1195,17 @@ rz.widgets.FormRenderers["v-grid"] = function (params, sender) {
             var groupInfoData = 'data-groupingid="*"'.replace('*', gid);
 
             field.fields.forEach(function (it) {
-                renderDataField(sb, it, groupInfoData);
+                $this.renderDataField(sb, it, groupInfoData);
             });
         }
         else{
             field.fields.forEach(function (it) {
-                renderDataField(sb, it, parentGroup);
+                $this.renderDataField(sb, it, parentGroup);
             });
         }
     };
 
-    var renderDataField = function (sb, field,gidata) {
+    this.renderDataField = function (sb, field,gidata) {
         var fieldID = (field.id || field.model || "row_" + generateRandomID(8)).replace(/\./g, "_");
         if (field.fieldGroup) {
             renderFieldGroup(field, fieldID, sb,gidata);
@@ -1389,90 +1246,39 @@ rz.widgets.FormRenderers["v-grid"] = function (params, sender) {
 
     this.addField = function (fielddata) {
         var sb = new StringBuilder();
-        renderDataField(sb, fielddata);
+        $this.renderDataField(sb, fielddata);
         $(sb.toString()).appendTo("#" + $this.target + "base_form tbody");
 
     };
 
     this.insertField = function (fielddata, position) {
         var sb = new StringBuilder();
-        renderDataField(sb, fielddata);
+        $this.renderDataField(sb, fielddata);
         $("#" + $this.target + "base_form tbody > .field-row").eq(position).before(sb.toString());
     };
 
     this.removeFieldAt = function (position) {
         var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
+        if (p >= 0 && p < $this.sender.fieldCount()) {
             $("#" + $this.target + "base_form tbody > .field-row").eq(p).remove();
         }
     };
 
-    this.removeFieldById = function (fieldid) {
-        if (!fieldid.startsWith($this.target + "_")) {
-            fieldid = $this.target + "_" + fieldid;
-        }
-        $("#" + fieldid).remove();
-    };
-
     this.getValueAt = function (position) {
         var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
+        if (p >= 0 && p < $this.sender.fieldCount()) {
             var id = $("#" + $this.target + "base_form tbody > .field-row").eq(p).attr("id");
             return rz.widgets.formHelpers.getValueOfField("#" + id);
         }
     };
-    this.getfieldIdOfModel = function(model){
-        return $("#" + $this.target + "base_form .field[data-model='"+model+"']").attr("id");
-    };
-    this.getValueOfModel = function (model) {
-        return $this.getValueOf($this.getfieldIdOfModel(model));
-    };
-
-    this.setValueOfModel = function (model,value) {
-        var id = $("#" + $this.target +  "base_form .field[data-model='"+model+"']").attr("id");
-        return $this.setValueOf(id,value);
-    };
-
-    this.getValueOf = function (fieldid) {
-        if (!fieldid.startsWith($this.target + "_")) {
-            fieldid = $this.target + "_" + fieldid;
-        }
-        return rz.widgets.formHelpers.getValueOfField("#" + fieldid);
-    };
 
     this.setValueAt = function (position, value) {
         var p = position;
-        if (p >= 0 && p < this.fieldCount()) {
+        if (p >= 0 && p < $this.sender.fieldCount()) {
             var id = $("#" + $this.target + "base_form tbody > .field-row").eq(p).attr("id");
             rz.widgets.formHelpers.setValueOfField("#" + id, value);
             rz.widgets.formHelpers.emit("data-changed", {fieldid: id, value: value, src: "code"}, $this.sender);
         }
-    };
-
-    this.setValueOf = function (fieldid, value) {
-        if(fieldid !==undefined){
-            if (!fieldid.startsWith($this.target + "_")) {
-                fieldid = $this.target + "_" + fieldid;
-            }
-            rz.widgets.formHelpers.setValueOfField("#" + fieldid, value,$this.sender);
-            rz.widgets.formHelpers.emit("data-changed", {fieldid: fieldid, value: value, src: "code"}, $this.sender);
-        }
-    };
-
-    this.getFormData = function (fieldsetRule) {
-        return rz.widgets.formHelpers.getFormDataImpl($this,fieldsetRule);
-    };
-
-    this.setFormData = function(formData,fieldsetRule){
-        rz.widgets.formHelpers.setFormDataImpl(formData,$this,fieldsetRule);
-    };
-
-    this.clearFormData = function (fieldsetRule) {
-        rz.widgets.formHelpers.clearFormDataImpl($this,fieldsetRule);
-    };
-
-    this.validateForm = function(validationResultHandler,fieldsetRule,forceSuccess){
-        rz.widgets.formHelpers.validateFormImpl($this,params,validationResultHandler,fieldsetRule,forceSuccess);
     };
 
     this.displayValidationReport = function(){
@@ -1620,127 +1426,103 @@ rz.widgets.FormWidget = ruteZangada.widget("Form", rz.widgets.RZFormWidgetHelper
         }
     };
 
-    var impl = {
-            getValueOfModel: function (model) {
-                return $this.getValueOf($this.getfieldIdOfModel(model));
-            },
-            getfieldIdOfModel: function (model) {
-                return $("#" + $this.renderer.target + "base_form .field[data-model='" + model + "']").attr("id");
-            },
-            fieldCount: function () {
-                return $("#" + $this.renderer.target + "base_form .form-row").length;
-            },
-            getFieldIdAt: function (position) {
-                var p = position;
-                if (p >= 0 && p < $this.fieldCount()) {
-                    return $("#" + $this.renderer.target + "base_form .form-row").eq(p).attr("id");
-                }
-                else {
-                    return undefined;
-                }
-            }
-        };
-
     var ensureHandler = function (n) {
         return $this.renderer[n] || impl[n];
     };
 
-    this.fieldCount = function () {
-        return ensureHandler("fieldCount")();
-    };
-
-    this.getFieldIdAt = function (position) {
-        return ensureHandler("getFieldIdAt")(position);
-    };
-
-    this.addField = function (fielddata) {
-        $this.renderer.addField(fielddata);
-        rz.widgets.formHelpers.bindEventHandlersOfField(fielddata.type, fielddata.id, $this);
-        rz.widgets.formHelpers.doPosRenderActionsOfField(fielddata.type, fielddata.id, $this);
-        $this.raiseEvent("field-added", fielddata, $this);
-
-    };
-
-    this.insertField = function (fielddata, position) {
-        $this.renderer.insertField(fielddata, position);
-        rz.widgets.formHelpers.bindEventHandlersOfField(fielddata.type, fielddata.id, $this);
-        rz.widgets.formHelpers.doPosRenderActionsOfField(fielddata.type, fielddata.id, $this);
-    };
-
-    this.removeFieldAt = function (position) {
-        $this.renderer.removeFieldAt(position);
-    };
-
-    this.removeFieldById = function (fieldid) {
-        $this.renderer.removeFieldById(fieldid);
-    };
-
-    this.getValueAt = function (position) {
-        return $this.renderer.getValueAt(position);
-    };
-
-    this.getValueOf = function (fieldid) {
-        return $this.renderer.getValueOf(fieldid);
-    };
-
-    this.setValueAt = function (position, value) {
-        $this.renderer.setValueAt(position, value);
-    };
-
-    this.setValueOf = function (fieldid, value) {
-        $this.renderer.setValueOf(fieldid, value);
-    };
-
-    /**
-     * get a fieldid of field model(refatorado padrão 1)
-     * @param model
-     */
-    this.getfieldIdOfModel = function (model) {
-        return ensureHandler("getfieldIdOfModel")(model);
-    };
-
-    /**
-     * get value of model (refatorado padrão 1)
-     * @param model
-     */
-    this.getValueOfModel = function (model) {
-        return ensureHandler("getValueOfModel")(model);
-    };
-
-    this.setValueOfModel = function (model, value) {
-        return $this.renderer.setValueOfModel(model, value);
-    };
-
-    this.getFormData = function (fieldsetRule) {
-        return $this.renderer.getFormData(fieldsetRule);
-    };
-
-    this.setFormData = function (formData, fieldsetRule) {
-        $this.lastFieldsetRules = fieldsetRule;
-        $this.renderer.setFormData(formData, fieldsetRule);
-    };
-
-    this.clearFormData = function (fieldsetRule, preserveValidationStatus) {
-        if (!preserveValidationStatus) {
-            $this.renderer.validateForm(undefined, undefined, true);
-        }
-        $this.lastFieldsetRules = fieldsetRule;
-        $this.renderer.clearFormData(fieldsetRule);
-    };
-
-    this.validateForm = function (validationResultHandler, fieldsetRule) {
-        $this.lastFieldsetRules = fieldsetRule;
-        $this.renderer.validateForm(validationResultHandler, fieldsetRule)
-    };
-
-    this.getFieldParams = function (filterValue, filterBy) {
-        //filterBy = id,model,position
-        var handler = $this.renderer.getFieldParams;
-        if (handler !== undefined) {
-            return handler(filterValue, filterBy);
-        }
-        else {
-            //defaultHandler
+    var impl = {
+        getValueOfModel: function (model) {
+            return $this.getValueOf($this.getfieldIdOfModel(model));
+        },
+        getfieldIdOfModel: function (model) {
+            return $("#" + $this.renderer.target + "base_form .field[data-model='" + model + "']").attr("id");
+        },
+        fieldCount: function () {
+            return $("#" + $this.renderer.target + "base_form .form-row").length;
+        },
+        getFieldIdAt: function (position) {
+            var p = position;
+            if (p >= 0 && p < $this.fieldCount()) {
+                return $("#" + $this.renderer.target + "base_form .form-row").eq(p).attr("id");
+            }
+            else {
+                return undefined;
+            }
+        },
+        addField: function (fielddata) {
+            var sb = new StringBuilder();
+            $this.renderer.renderDataField(sb, fielddata);
+            $("#" + $this.renderer.target + "base_form .form-row").last().parent().append(sb.toString());
+        },
+        insertField: function (fielddata, position) {
+            var sb = new StringBuilder();
+            $this.renderer.renderDataField(sb, fielddata);
+            $("#" + $this.renderer.target + "base_form .form-row").eq(position).before(sb.toString());
+        },
+        removeFieldAt: function (position) {
+            var p = position;
+            if (p >= 0 && p < $this.fieldCount()) {
+                $("#" + $this.renderer.target + "base_form .form-row").eq(p).remove();
+            }
+        },
+        removeFieldById: function (fieldid) {
+            if (!fieldid.startsWith($this.renderer.target + "_")) {
+                fieldid = $this.renderer.target + "_" + fieldid;
+            }
+            $("#" + fieldid).remove();
+        },
+        getValueAt: function (position) {
+            var p = position;
+            if (p >= 0 && p < $this.fieldCount()) {
+                var id = $("#" + $this.renderer.target + "base_form .form-row").eq(p).attr("id");
+                return rz.widgets.formHelpers.getValueOfField("#" + id);
+            }
+        },
+        getValueOf: function (fieldid) {
+            if (!fieldid.startsWith($this.renderer.target + "_")) {
+                fieldid = $this.renderer.target + "_" + fieldid;
+            }
+            return rz.widgets.formHelpers.getValueOfField("#" + fieldid);
+        },
+        setValueOf: function (fieldid, value,behaviors) {
+            var bh = behaviors ||{bypassEventHandling:false};
+            if (fieldid !== undefined) {
+                if (!fieldid.startsWith($this.renderer.target + "_")) {
+                    fieldid = $this.renderer.target + "_" + fieldid;
+                }
+                rz.widgets.formHelpers.setValueOfField("#" + fieldid, value, $this);
+                if(!bh.bypassEventHandling){
+                    rz.widgets.formHelpers.emit("data-changed", {fieldid: fieldid,value: value,src: "code"}, $this);
+                }
+            }
+        },
+        setValueOfModel: function (model, value) {
+            return $this.setValueOf($this.getfieldIdOfModel(model), value);
+        },
+        setValueAt: function (position, value) {
+            var p = position;
+            if (p >= 0 && p < $this.fieldCount()) {
+                var id = $("#" + $this.renderer.target + "base_form .form-row").eq(p).attr("id");
+                var formerValue = rz.widgets.formHelpers.getValueOfField("#" + id);
+                if (formerValue != value) {
+                    rz.widgets.formHelpers.setValueOfField("#" + id, value, $this);
+                    rz.widgets.formHelpers.emit("data-changed", {fieldid: id, value: value, src: "code"}, $this);
+                }
+            }
+        },
+        getFormData: function (fieldsetRule) {
+            return rz.widgets.formHelpers.getFormDataImpl($this.renderer, fieldsetRule);
+        },
+        setFormData: function (formData, fieldsetRule) {
+            rz.widgets.formHelpers.setFormDataImpl(formData, $this.renderer, fieldsetRule);
+        },
+        clearFormData: function (fieldsetRule) {
+            rz.widgets.formHelpers.clearFormDataImpl($this.renderer, fieldsetRule);
+        },
+        validateForm: function (validationResultHandler, fieldsetRule, forceSuccess) {
+            rz.widgets.formHelpers.validateFormImpl($this.renderer, $this.renderer.params, validationResultHandler, fieldsetRule, forceSuccess);
+        },
+        getFieldParams: function (filterValue, filterBy) {
             var fieldid = undefined;
             if (filterBy === undefined) filterBy = "model";
             if (filterBy == "id") {
@@ -1752,47 +1534,134 @@ rz.widgets.FormWidget = ruteZangada.widget("Form", rz.widgets.RZFormWidgetHelper
                 }
             }
             else if (filterBy == "position") {
-                fieldid = $this.renderer.getFieldIdAt(parseInt(filterValue));
+                fieldid = $this.getFieldIdAt(parseInt(filterValue));
             }
             else {
-                fieldid = $this.renderer.getfieldIdOfModel(filterValue);
+                fieldid = $this.getfieldIdOfModel(filterValue);
             }
-            //return $this.renderer.getFieldParams(filterValue,filterBy);
             return rz.widgets.formHelpers.getFieldParams(fieldid, $this.renderer.params.fields);
+        },
+        getFieldValue: function (field, filterBy) {
+            if (filterBy == "id") {
+                return $this.getValueOf(field);
+            }
+            else if (filterBy == "position") {
+                return $this.getValueAt(parseInt(field));
+            }
+            else {
+                return $this.getValueOfModel(field);
+            }
+        },
+        setFieldValue: function (field, value, filterBy) {
+            if (filterBy == "id") {
+                return $this.setValueOf(field, value);
+            }
+            else if (filterBy == "position") {
+                return $this.setValueAt(parseInt(field), value);
+            }
+            else {
+                return $this.setValueOfModel(field, value);
+            }
+        },
+        getFieldsOfGroup:function(groupName){
+            
         }
 
     };
 
-    /***************************************************************************************************************/
+    this.fieldCount = function () {
+        return ensureHandler("fieldCount")();
+    };
 
-    /***
-     * gets the field value
-     * @param filterValue field name
-     * @param filterBy [optional] the filter type (id, position ou model); The default value is model
-     * @returns {*}
-     */
+    this.getFieldIdAt = function (position) {
+        return ensureHandler("getFieldIdAt")(position);
+    };
+
+    this.addField = function (fielddata) {
+        ensureHandler("addField")(fielddata);
+        rz.widgets.formHelpers.bindEventHandlersOfField(fielddata.type, fielddata.id, $this);
+        rz.widgets.formHelpers.doPosRenderActionsOfField(fielddata.type, fielddata.id, $this);
+        $this.raiseEvent("field-added", fielddata, $this);
+    };
+
+    this.insertField = function (fielddata, position) {
+        ensureHandler("insertField")(fielddata, position);
+        rz.widgets.formHelpers.bindEventHandlersOfField(fielddata.type, fielddata.id, $this);
+        rz.widgets.formHelpers.doPosRenderActionsOfField(fielddata.type, fielddata.id, $this);
+    };
+
+    this.removeFieldAt = function (position) {
+        ensureHandler("removeFieldAt")(position);
+    };
+
+    this.removeFieldById = function (fieldid) {
+        ensureHandler("removeFieldById")(fieldid);
+    };
+
+    this.getValueAt = function (position) {
+        return ensureHandler("getValueAt")(position);
+    };
+
+    this.getValueOf = function (fieldid) {
+        return ensureHandler("getValueOf")(fieldid);
+    };
+
+    this.setValueAt = function (position, value) {
+        ensureHandler("setValueAt")(position, value);
+    };
+
+    this.setValueOf = function (fieldid, value,behaviors) {
+        ensureHandler("setValueOf")(fieldid, value,behaviors);
+    };
+
+    this.getfieldIdOfModel = function (model) {
+        return ensureHandler("getfieldIdOfModel")(model);
+    };
+
+    this.getValueOfModel = function (model) {
+        return ensureHandler("getValueOfModel")(model);
+    };
+
+    this.setValueOfModel = function (model, value) {
+        return ensureHandler("setValueOfModel")(model, value);
+    };
+
+    this.getFormData = function (fieldsetRule) {
+        return ensureHandler("getFormData")(fieldsetRule);
+    };
+
+    this.setFormData = function (formData, fieldsetRule) {
+        $this.lastFieldsetRules = fieldsetRule;
+        ensureHandler("setFormData")(formData, fieldsetRule);
+    };
+
+    this.clearFormData = function (fieldsetRule, preserveValidationStatus) {
+        if (!preserveValidationStatus) {
+            ensureHandler("validateForm")(undefined, undefined, true);
+        }
+        $this.lastFieldsetRules = fieldsetRule;
+        ensureHandler("clearFormData")(fieldsetRule);
+    };
+
+    this.validateForm = function (validationResultHandler, fieldsetRule) {
+        $this.lastFieldsetRules = fieldsetRule;
+        ensureHandler("validateForm")(validationResultHandler, fieldsetRule);
+    };
+
+    this.getFieldParams = function (filterValue, filterBy) {
+        return ensureHandler("getFieldParams")(filterValue, filterBy);
+    };
+
     this.getFieldValue = function (field, filterBy) {
-        if (filterBy == "id") {
-            return this.getValueOf(field);
-        }
-        else if (filterBy == "position") {
-            return this.getValueAt(parseInt(field));
-        }
-        else {
-            return this.getValueOfModel(field);
-        }
+        return ensureHandler("getFieldValue")(field, filterBy);
     };
 
     this.setFieldValue = function (field, value, filterBy) {
-        if (filterBy == "id") {
-            return this.setValueOf(field, value);
-        }
-        else if (filterBy == "position") {
-            return this.setValueAt(parseInt(field), value);
-        }
-        else {
-            return this.setValueOfModel(field, value);
-        }
+        return ensureHandler("setFieldValue")(field, value, filterBy);
+    };
+
+    this.getFieldsOfGroup = function(groupName){
+        return ensureHandler("getFieldsOfGroup")(groupName);
     }
 
 
