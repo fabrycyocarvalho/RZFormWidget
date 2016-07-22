@@ -58,7 +58,7 @@ rz.widgets.formHelpers.createFieldRenderer("collection", {
         });
         return results;
     },
-    setValue: function (fid, newValue, sender) {
+    setValue: function (id, newValue, sender) {
         var newElementIDS = [];
         var id = fid.substring(0, fid.lastIndexOf("_collection"));
         /*particular for non input controls*/
