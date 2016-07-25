@@ -4,6 +4,11 @@
  */
 rz.widgets.formHelpers.createFieldRenderer("search", {
 
+    normalizeID: function (id) {
+        id = (id.startsWith('#') ? id : ("#" + id));
+        return id;
+    },
+
     render: function (sb, field, containerID) {
 
         var resolveAttributes = function () {
@@ -31,40 +36,41 @@ rz.widgets.formHelpers.createFieldRenderer("search", {
         return containerID;
     },
     getValue: function (id) {
-
+        //linha provisória para remover esse sufixo quem vem no ID do registro
         id = id.substring(0, id.indexOf("_search"));
-
-        if (!id.startsWith('#')) id = "#" + id;
-
-        var result = JSON.parse(atob($(id).data("result")));
-
-        return result;
+        return JSON.parse(atob($(this.normalizeID(id)).data("result")));
     },
-    setValue: function (id, newValue) {
+    setValue: function (id, newValue, sender) {
 
+        //linha provisória para remover esse sufixo quem vem no ID do registro
         id = id.substring(0, id.indexOf("_search"));
-
-        if (!id.startsWith('#')) id = "#" + id;
 
         var data = (newValue !== undefined && newValue !== null) ? btoa(JSON.stringify(newValue)) : newValue;
-        $(id).attr('data-result', data);
 
+        $(this.normalizeID(id)).attr('data-result', data);
 
-        $(id).search('set value', newValue || "");
+        var title;
+
+        if (typeof newValue === 'object') {
+            var settings = rz.widgets.formHelpers.getFieldParams(id.replace("#", ""), sender.renderer.params.fields).settings;
+            title = newValue[settings.fields.title] || "";
+        } else {
+            title = newValue || "";
+        }
+        $(id).search('set value', title);
+
     },
     bindEvents: function (id, emit, sender) {
     },
     doPosRenderActions: function (id, sender) {
-
-        var fieldParams = rz.widgets.formHelpers.getFieldParams(id.replace("#", ""), sender.renderer.params.fields);
-
-        var settings = fieldParams.settings;
+        var $this = this;
+        var settings = rz.widgets.formHelpers.getFieldParams(id.replace("#", ""), sender.renderer.params.fields).settings;
 
         if (settings == undefined) {
             settings = {};
         } else {
             settings.onSelect = function (item) {
-                if (!id.startsWith('#')) id = "#" + id;
+                $this.normalizeID(id);
                 var data = (item !== undefined && item !== null) ? btoa(JSON.stringify(item)) : item;
                 $(id).attr('data-result', data);
             };
