@@ -5,8 +5,7 @@
 rz.widgets.formHelpers.createFieldRenderer("search", {
 
     normalizeID: function (id) {
-        id = (id.startsWith('#') ? id : ("#" + id));
-        return id;
+        return id.startsWith('#') ? id : ("#" + id);
     },
 
     render: function (sb, field, containerID) {
@@ -38,7 +37,13 @@ rz.widgets.formHelpers.createFieldRenderer("search", {
     getValue: function (id) {
         //linha provisória para remover esse sufixo quem vem no ID do registro
         id = id.substring(0, id.indexOf("_search"));
-        return JSON.parse(atob($(this.normalizeID(id)).data("result")));
+
+        var dataResult = $(this.normalizeID(id)).data("result");
+        if(dataResult == undefined){
+            return "";
+        }
+
+        return JSON.parse(atob(dataResult));
     },
     setValue: function (id, newValue, sender) {
 
@@ -70,9 +75,8 @@ rz.widgets.formHelpers.createFieldRenderer("search", {
             settings = {};
         } else {
             settings.onSelect = function (item) {
-                $this.normalizeID(id);
                 var data = (item !== undefined && item !== null) ? btoa(JSON.stringify(item)) : item;
-                $(id).attr('data-result', data);
+                $($this.normalizeID(id)).attr('data-result', data);
             };
         }
 
