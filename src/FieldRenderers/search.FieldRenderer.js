@@ -1,6 +1,5 @@
 /**
- * Created by Anderson on 13/01/2016.
- * Input text renderer
+ * Created by fabricio.reis on 09/08/2016.
  */
 rz.widgets.formHelpers.createFieldRenderer("search", {
 
